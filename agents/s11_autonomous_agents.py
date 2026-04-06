@@ -270,6 +270,7 @@ class TeammateManager:
             polls = IDLE_TIMEOUT // max(POLL_INTERVAL, 1)
             for _ in range(polls):
                 time.sleep(POLL_INTERVAL)
+                # 先读取 inbox
                 inbox = BUS.read_inbox(name)
                 if inbox:
                     for msg in inbox:
@@ -279,6 +280,7 @@ class TeammateManager:
                         messages.append({"role": "user", "content": json.dumps(msg)})
                     resume = True
                     break
+                # 无 inbox，再读取 tasks
                 unclaimed = scan_unclaimed_tasks()
                 if unclaimed:
                     task = unclaimed[0]
@@ -359,8 +361,10 @@ class TeammateManager:
              "input_schema": {"type": "object", "properties": {"request_id": {"type": "string"}, "approve": {"type": "boolean"}, "reason": {"type": "string"}}, "required": ["request_id", "approve"]}},
             {"name": "plan_approval", "description": "Submit a plan for lead approval.",
              "input_schema": {"type": "object", "properties": {"plan": {"type": "string"}}, "required": ["plan"]}},
+            # 子 agent 主动切换至 idle 状态
             {"name": "idle", "description": "Signal that you have no more work. Enters idle polling phase.",
              "input_schema": {"type": "object", "properties": {}}},
+             # ! 没提供让 agent 主动查看任务的 tool，仅提供了认领任务的 tool
             {"name": "claim_task", "description": "Claim a task from the task board by ID.",
              "input_schema": {"type": "object", "properties": {"task_id": {"type": "integer"}}, "required": ["task_id"]}},
         ]

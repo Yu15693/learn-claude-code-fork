@@ -53,6 +53,7 @@ MODEL = os.environ["MODEL_ID"]
 def detect_repo_root(cwd: Path) -> Path | None:
     """Return git repo root if cwd is inside a repo, else None."""
     try:
+        # 获取 git 根目录
         r = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=cwd,

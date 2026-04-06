@@ -40,6 +40,7 @@ SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, d
 
 def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()
+    # 判断是否在工作目录下
     if not path.is_relative_to(WORKDIR):
         raise ValueError(f"Path escapes workspace: {p}")
     return path
@@ -58,6 +59,7 @@ def run_bash(command: str) -> str:
         return "Error: Timeout (120s)"
 
 
+# 这里的 limit 是行数限制
 def run_read(path: str, limit: int = None) -> str:
     try:
         text = safe_path(path).read_text()
@@ -73,6 +75,7 @@ def run_write(path: str, content: str) -> str:
     try:
         fp = safe_path(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
+        # 重写
         fp.write_text(content)
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
@@ -85,6 +88,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
         content = fp.read_text()
         if old_text not in content:
             return f"Error: Text not found in {path}"
+        # ! 这里存在如果有多个相同文本，可能替换错误的问题
         fp.write_text(content.replace(old_text, new_text, 1))
         return f"Edited {path}"
     except Exception as e:

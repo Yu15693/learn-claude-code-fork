@@ -65,6 +65,7 @@ def estimate_tokens(messages: list) -> int:
     return len(str(messages)) // 4
 
 
+# ! layer 1 的压缩策略过于简单，并且替换上下文中的工具调用会导致缓存失效
 # -- Layer 1: micro_compact - replace old tool results with placeholders --
 def micro_compact(messages: list) -> list:
     # Collect (msg_index, part_index, tool_result_dict) for all tool_result entries
@@ -77,6 +78,7 @@ def micro_compact(messages: list) -> list:
     if len(tool_results) <= KEEP_RECENT:
         return messages
     # Find tool_name for each result by matching tool_use_id in prior assistant messages
+    # 扫描助手消息以获得 dict[tool call id, name]
     tool_name_map = {}
     for msg in messages:
         if msg["role"] == "assistant":
@@ -95,6 +97,7 @@ def micro_compact(messages: list) -> list:
         tool_name = tool_name_map.get(tool_id, "unknown")
         if tool_name in PRESERVE_RESULT_TOOLS:
             continue
+        print(f"> micro_compact: {tool_name} {tool_id}")
         result["content"] = f"[Previous: used {tool_name}]"
     return messages
 
@@ -118,6 +121,7 @@ def auto_compact(messages: list) -> list:
             "Be concise but preserve critical details.\n\n" + conversation_text}],
         max_tokens=2000,
     )
+    # 生成器表达式，惰性执行；next 取迭代器下一个值
     summary = next((block.text for block in response.content if hasattr(block, "text")), "")
     if not summary:
         summary = "No summary generated."

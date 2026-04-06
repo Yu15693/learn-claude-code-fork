@@ -63,6 +63,7 @@ MODEL = os.environ["MODEL_ID"]
 TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
 
+# ! system prompt 应该提醒更多有关汇报和组织团队相关的要求
 SYSTEM = f"You are a team lead at {WORKDIR}. Spawn teammates and communicate via inboxes."
 
 VALID_MSG_TYPES = {
@@ -93,6 +94,7 @@ class MessageBus:
         if extra:
             msg.update(extra)
         inbox_path = self.dir / f"{to}.jsonl"
+        # ! 存在冲突风险，如 member1 read_inbox 时，member2 send
         with open(inbox_path, "a") as f:
             f.write(json.dumps(msg) + "\n")
         return f"Sent {msg_type} to {to}"
@@ -134,6 +136,7 @@ class TeammateManager:
             return json.loads(self.config_path.read_text())
         return {"team_name": "default", "members": []}
 
+    # ! save config 时不能保证原子化，仍有冲突风险，如先执行的函数后完成，导致 config 保存的为旧状态
     def _save_config(self):
         self.config_path.write_text(json.dumps(self.config, indent=2))
 
@@ -143,6 +146,7 @@ class TeammateManager:
                 return m
         return None
 
+    # ! 子 agent 没有进行 messages 的持久化，导致虽然团队成员持久化了，但每次使用和新成员没区别
     def spawn(self, name: str, role: str, prompt: str) -> str:
         member = self._find_member(name)
         if member:
@@ -163,6 +167,7 @@ class TeammateManager:
         thread.start()
         return f"Spawned '{name}' (role: {role})"
 
+    # 给特定 member 使用的 agent loop
     def _teammate_loop(self, name: str, role: str, prompt: str):
         sys_prompt = (
             f"You are '{name}', role: {role}, at {WORKDIR}. "
@@ -170,6 +175,8 @@ class TeammateManager:
         )
         messages = [{"role": "user", "content": prompt}]
         tools = self._teammate_tools()
+        # 进行有限轮次的 agent loop
+        # 直到达到轮次上限、api 调用错误、停止 tool use
         for _ in range(50):
             inbox = BUS.read_inbox(name)
             for msg in inbox:
@@ -199,25 +206,25 @@ class TeammateManager:
                     })
             messages.append({"role": "user", "content": results})
         member = self._find_member(name)
+        # 结束后修改 member 状态
         if member and member["status"] != "shutdown":
             member["status"] = "idle"
             self._save_config()
 
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
         # these base tools are unchanged from s02
-        if tool_name == "bash":
-            return _run_bash(args["command"])
-        if tool_name == "read_file":
-            return _run_read(args["path"])
-        if tool_name == "write_file":
-            return _run_write(args["path"], args["content"])
-        if tool_name == "edit_file":
-            return _run_edit(args["path"], args["old_text"], args["new_text"])
-        if tool_name == "send_message":
-            return BUS.send(sender, args["to"], args["content"], args.get("msg_type", "message"))
-        if tool_name == "read_inbox":
-            return json.dumps(BUS.read_inbox(sender), indent=2)
-        return f"Unknown tool: {tool_name}"
+        # * 改造成类似 handle 的 dict 结构
+        teammate_tool_handlers = {
+            "bash": lambda **kw: _run_bash(kw["command"]),
+            "read_file": lambda **kw: _run_read(kw["path"]),
+            "write_file": lambda **kw: _run_write(kw["path"], kw["content"]),
+            "edit_file": lambda **kw: _run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+            "send_message": lambda **kw: BUS.send(sender, kw["to"], kw["content"], kw.get("msg_type", "message")),
+            # 主动阅读自己的 inbox
+            "read_inbox": lambda **kw: json.dumps(BUS.read_inbox(sender), indent=2),
+        }
+        handler = teammate_tool_handlers.get(tool_name)
+        return handler(**args) if handler else f"Unknown tool: {tool_name}"
 
     def _teammate_tools(self) -> list:
         # these base tools are unchanged from s02
@@ -319,6 +326,7 @@ TOOL_HANDLERS = {
     "broadcast":       lambda **kw: BUS.broadcast("lead", kw["content"], TEAM.member_names()),
 }
 
+# ! 同样的，主 agent 没有 wait 命令，导致总是空转
 # these base tools are unchanged from s02
 TOOLS = [
     {"name": "bash", "description": "Run a shell command.",
@@ -329,7 +337,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in file.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "spawn_teammate", "description": "Spawn a persistent teammate that runs in its own thread.",
+    {"name": "spawn_teammate", "description": "Spawn a persistent teammate that runs in its own thread. Or allow existing idle teammate to continue working.",
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["name", "role", "prompt"]}},
     {"name": "list_teammates", "description": "List all teammates with name, role, status.",
      "input_schema": {"type": "object", "properties": {}}},

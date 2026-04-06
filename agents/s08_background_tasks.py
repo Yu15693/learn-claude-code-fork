@@ -28,6 +28,7 @@ Key insight: "Fire and forget -- the agent doesn't block while the command runs.
 import os
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -43,7 +44,11 @@ WORKDIR = Path.cwd()
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
 
-SYSTEM = f"You are a coding agent at {WORKDIR}. Use background_run for long-running commands."
+SYSTEM = (
+    f"You are a coding agent at {WORKDIR}. "
+    "Use background_run for long-running commands. "
+    "If a background task is still running, use wait before check_background instead of busy polling."
+)
 
 
 # -- BackgroundManager: threaded execution + notification queue --
@@ -159,12 +164,19 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+def run_wait(seconds: int) -> str:
+    # Clamp wait time so the agent can pause without stalling the harness for too long.
+    seconds = max(1, min(seconds, 30))
+    time.sleep(seconds)
+    return f"Waited {seconds}s"
+
 
 TOOL_HANDLERS = {
     "bash":             lambda **kw: run_bash(kw["command"]),
     "read_file":        lambda **kw: run_read(kw["path"], kw.get("limit")),
     "write_file":       lambda **kw: run_write(kw["path"], kw["content"]),
     "edit_file":        lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    "wait":             lambda **kw: run_wait(kw.get("seconds", 5)),
     "background_run":   lambda **kw: BG.run(kw["command"]),
     "check_background": lambda **kw: BG.check(kw.get("task_id")),
 }
@@ -178,6 +190,8 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in file.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+    {"name": "wait", "description": "Pause briefly before the next step, useful while background tasks are still running. Defaults to 5 seconds.",
+     "input_schema": {"type": "object", "properties": {"seconds": {"type": "integer", "default": 5, "minimum": 1, "maximum": 30}}}},
     {"name": "background_run", "description": "Run command in background thread. Returns task_id immediately.",
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "check_background", "description": "Check background task status. Omit task_id to list all.",
@@ -187,13 +201,17 @@ TOOLS = [
 
 def agent_loop(messages: list):
     while True:
+        # ! 当后台有任务未完成时，agent 会不断的短时间调用工具 check_background 轮询检查状态，感觉 agent 应该能调用工具主动停一会才对
+        # 通过添加 wait 工具修复了这个问题
         # Drain background notifications and inject as system message before LLM call
         notifs = BG.drain_notifications()
         if notifs and messages:
             notif_text = "\n".join(
+                # 同样是生成器表达式
                 f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
             )
             messages.append({"role": "user", "content": f"<background-results>\n{notif_text}\n</background-results>"})
+            print(f'> drain_notifications\n{notif_text}\n')
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
@@ -205,11 +223,11 @@ def agent_loop(messages: list):
         for block in response.content:
             if block.type == "tool_use":
                 handler = TOOL_HANDLERS.get(block.name)
+                print(f"> {block.name}:")
                 try:
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
                     output = f"Error: {e}"
-                print(f"> {block.name}:")
                 print(str(output)[:200])
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
         messages.append({"role": "user", "content": results})

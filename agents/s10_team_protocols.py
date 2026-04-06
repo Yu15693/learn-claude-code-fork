@@ -46,6 +46,7 @@ request_id correlation pattern. Builds on s09's team messaging.
 
 Key insight: "Same request_id correlation pattern, two domains."
 """
+# 这里说的 FSM 是有限状态机（Finite State Machine）
 
 import json
 import os
