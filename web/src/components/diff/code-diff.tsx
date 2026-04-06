@@ -59,6 +59,7 @@ export function CodeDiff({ oldSource, newSource, oldLabel, newLabel }: CodeDiffP
   );
 }
 
+// 基本没问题
 function UnifiedView({ changes }: { changes: Change[] }) {
   let oldLine = 1;
   let newLine = 1;
@@ -119,6 +120,7 @@ function UnifiedView({ changes }: { changes: Change[] }) {
   );
 }
 
+// 存在潜在问题
 function SplitView({ changes }: { changes: Change[] }) {
   let oldLine = 1;
   let newLine = 1;

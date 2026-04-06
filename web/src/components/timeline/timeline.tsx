@@ -104,6 +104,7 @@ export function Timeline() {
 
               {/* Content card */}
               <div className="flex-1 pb-2">
+                {/* 出场渐入滑入 */}
                 <motion.div
                   initial={{ opacity: 0, x: 30 }}
                   whileInView={{ opacity: 1, x: 0 }}
@@ -189,6 +190,7 @@ export function Timeline() {
                 </span>
                 <div className="flex-1">
                   <div className="h-5 w-full overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                    {/* 出场条形增长 */}
                     <motion.div
                       initial={{ width: 0 }}
                       whileInView={{ width: `${widthPercent}%` }}

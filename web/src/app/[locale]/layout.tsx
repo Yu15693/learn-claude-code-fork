@@ -38,6 +38,7 @@ export default async function RootLayout({
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
+        {/* 添加黑色主题 */}
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             var theme = localStorage.getItem('theme');
@@ -47,6 +48,7 @@ export default async function RootLayout({
           })();
         `}} />
       </head>
+      {/* antialiased 字体抗锯齿 */}
       <body className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] antialiased">
         <I18nProvider locale={locale}>
           <Header />
